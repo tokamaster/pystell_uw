@@ -124,7 +124,6 @@ class VMECData:
         self.psips = np.array(self.data.variables["phips"])
         self.s = self.psi / self.psi[-1]  # integer grid
         self.shalf = self.s - self.s[1] / 2  # half grid
-        self.volume = np.array(self.data.variables["volume_p"])
         self.b0 = np.array(self.data.variables["b0"])
         self.volavgB = np.array(self.data.variables["volavgB"])
         self.ns = len(self.psi)
@@ -1057,3 +1056,34 @@ class VMECData:
         # s guess is normalized radius squared
         s_guess = d_pt / d_pl
         return s_guess
+
+    @property
+    def volume(self):
+        """
+        Calculate the total volume enclosed by the flux surfaces.
+
+        This method first attempts to retrieve the precomputed volume from the 
+        "volume_p" variable in the dataset. If the variable is not available or 
+        its value is zero, the volume is computed by numerically integrating the 
+        volume derivative (dvds) over the normalized flux coordinate (s).
+
+        Returns:
+        - vol (float): Total volume enclosed by the flux surfaces.
+
+        Notes:
+        - A warning is logged if the integration error exceeds a predefined threshold.
+
+        """
+        try:
+            vol = np.array(self.data.variables["volume_p"])
+            if vol.size == 1 and vol != 0:
+                return vol
+        except KeyError:
+            pass  # If "volume_p" is not available, proceed to calculate it.
+
+        # Calculate volume by integrating dvds over s
+        vol, error = integrate.quad(lambda s: self.dvds(s, interpolate=True), 0, 1)
+        error_threshold = 1e-4
+        if error > error_threshold:
+            logging.warning(f"Integration error is large: {error}")
+        return np.array(vol)

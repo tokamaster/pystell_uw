@@ -124,6 +124,7 @@ class VMECData:
         self.psips = np.array(self.data.variables["phips"])
         self.s = self.psi / self.psi[-1]  # integer grid
         self.shalf = self.s - self.s[1] / 2  # half grid
+
         self.b0 = np.array(self.data.variables["b0"])
         self.volavgB = np.array(self.data.variables["volavgB"])
         self.ns = len(self.psi)
@@ -1057,33 +1058,60 @@ class VMECData:
         s_guess = d_pt / d_pl
         return s_guess
 
-    @property
-    def volume(self):
+    def volume_enclosed(self, s=1.0):
         """
-        Calculate the total volume enclosed by the flux surfaces.
+        Calculate the volume enclosed by a flux surface at normalized flux s.
 
         This method first attempts to retrieve the precomputed volume from the 
         "volume_p" variable in the dataset. If the variable is not available or 
         its value is zero, the volume is computed by numerically integrating the 
         volume derivative (dvds) over the normalized flux coordinate (s).
 
+        Args:
+        - s (float): Normalized flux coordinate (default 1.0 for total volume).
+    
         Returns:
-        - vol (float): Total volume enclosed by the flux surfaces.
-
-        Notes:
-        - A warning is logged if the integration error exceeds a predefined threshold.
-
+        - vol (float): Volume enclosed by the flux surface at coordinate s.
+    
+        Examples:
+        >>> total_vol = v.volume_enclosed(s=1.0)  # Total plasma volume
+        >>> half_vol = v.volume_enclosed(s=0.5)   # Volume at half-radius
         """
-        try:
-            vol = np.array(self.data.variables["volume_p"])
-            if vol.size == 1 and vol != 0:
-                return vol
-        except KeyError:
-            pass  # If "volume_p" is not available, proceed to calculate it.
-
-        # Calculate volume by integrating dvds over s
-        vol, error = integrate.quad(lambda s: self.dvds(s, interpolate=True), 0, 1)
+        # Validate input
+        if s < 0 or s > 1:
+            raise ValueError("s must be between 0 and 1")
+        
+        if s == 0:
+            return 0.0
+        
+        # For s=1, try to use precomputed total volume first
+        if s == 1.0:
+            try:
+                vol = np.array(self.data.variables["volume_p"])
+                if vol.size == 1 and vol != 0:
+                    return float(vol)
+            except KeyError:
+                pass  # If "volume_p" is not available, proceed to calculate it.
+        
+        # Calculate volume by integrating dvds from 0 to s
+        vol, error = integrate.quad(
+            lambda s_int: self.dvds(s_int, interpolate=True), 
+            0, s
+        )
+        
+        # Log warning if integration error is large
         error_threshold = 1e-4
         if error > error_threshold:
-            logging.warning(f"Integration error is large: {error}")
-        return np.array(vol)
+            logging.warning(f"Volume integration error is large: {error}")
+        
+        return vol
+
+    @property
+    def volume(self):
+        """
+        Calculate the volume enclosed by the Last Closed Flux Surface (LCFS).
+    
+        Returns:
+        - vol (float): Volume enclosed by the LCFS.
+        """
+        return self.volume_enclosed(s=1.0)

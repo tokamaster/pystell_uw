@@ -1057,3 +1057,57 @@ class VMECData:
         # s guess is normalized radius squared
         s_guess = d_pt / d_pl
         return s_guess
+
+    def compute_surface_area_at_flux_surface(self, s=1.0, n_theta=128, n_zeta=128):
+        """
+        Compute the surface area of a flux surface at a given normalized flux.
+
+        This method reconstructs the flux surface using Fourier coefficients and computes the surface area
+        using the cross product of the derivatives with respect to theta and zeta. The surface area is then
+        calculated by integrating the Jacobian of the transformation over the theta-zeta grid.
+
+        Args:
+        - s (float): Normalized flux at which to compute the surface area.
+        - n_theta (int, optional): Number of points in the theta direction for the grid. Defaults to 128.
+        - n_zeta (int, optional): Number of points in the zeta direction for the grid. Defaults to 128.
+
+        Returns:
+        - area (float): Surface area of the flux surface at the specified normalized flux index.
+        """
+        theta = np.linspace(0, 2 * np.pi, n_theta)
+        zeta = np.linspace(0, 2 * np.pi, n_zeta)
+        dtheta = theta[1] - theta[0]
+        dzeta = zeta[1] - zeta[0]
+
+        theta_grid, zeta_grid = np.meshgrid(theta, zeta, indexing='ij')
+
+        # Allocate arrays
+        X = np.zeros_like(theta_grid)
+        Y = np.zeros_like(theta_grid)
+        Z = np.zeros_like(theta_grid)
+
+        # Fill the grid by calling vmec2xyz at each point
+        # not very efficient, improve vectorizing vmec2rpz/xyz
+        for i in range(n_theta):
+            for j in range(n_zeta):
+                X[i, j], Y[i, j], Z[i, j] = self.vmec2xyz(s, theta_grid[i, j], zeta_grid[i, j])
+
+        # Compute derivatives
+        dX_dtheta = np.gradient(X, dtheta, axis=0)
+        dY_dtheta = np.gradient(Y, dtheta, axis=0)
+        dZ_dtheta = np.gradient(Z, dtheta, axis=0)
+
+        dX_dzeta = np.gradient(X, dzeta, axis=1)
+        dY_dzeta = np.gradient(Y, dzeta, axis=1)
+        dZ_dzeta = np.gradient(Z, dzeta, axis=1)
+
+        # Cross product ∂r/∂θ × ∂r/∂ζ
+        cross_X = dY_dtheta * dZ_dzeta - dZ_dtheta * dY_dzeta
+        cross_Y = dZ_dtheta * dX_dzeta - dX_dtheta * dZ_dzeta
+        cross_Z = dX_dtheta * dY_dzeta - dY_dtheta * dX_dzeta
+
+        jacobian = np.sqrt(cross_X**2 + cross_Y**2 + cross_Z**2)
+
+        # Surface integral
+        area = np.sum(jacobian) * dtheta * dzeta
+        return area
